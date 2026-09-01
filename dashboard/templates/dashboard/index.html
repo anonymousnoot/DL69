@@ -1,0 +1,146 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <title>Perceptron Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen p-6">
+  <div class="max-w-4xl mx-auto bg-white p-8 rounded-2xl shadow-lg">
+    
+    <!-- ข้อมูลนักศึกษา -->
+    <div class="border-b pb-4 mb-6">
+      <h1 class="text-2xl font-bold text-indigo-600">รหัสนักศึกษา: 67114540282</h1>
+      <h2 class="text-xl font-semibold text-slate-700">ชื่อ-นามสกุล: นพวัชร พรสุข</h2>
+      <p class="text-sm text-slate-500 mt-1">Assignment wk09: PyTorch Perceptron Realtime Dashboard</p>
+    </div>
+
+    <!-- ปุ่มเริ่มและสถิติ Realtime -->
+    <div class="flex flex-wrap items-center justify-between gap-4 mb-6">
+      <button id="startBtn" onclick="startTraining()" class="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-xl shadow transition">
+        เริ่มฝึกสอน (Start Training)
+      </button>
+      <div class="flex space-x-4 text-sm">
+        <div class="bg-slate-50 px-4 py-2 rounded-xl border border-slate-200">
+          <span class="text-slate-500">Epoch:</span>
+          <span id="epochVal" class="font-bold text-indigo-600 text-lg ml-1">0</span>
+        </div>
+        <div class="bg-slate-50 px-4 py-2 rounded-xl border border-slate-200">
+          <span class="text-slate-500">Loss:</span>
+          <span id="lossVal" class="font-bold text-rose-500 text-lg ml-1">0.0000</span>
+        </div>
+        <div class="bg-slate-50 px-4 py-2 rounded-xl border border-slate-200">
+          <span class="text-slate-500">Accuracy:</span>
+          <span id="accVal" class="font-bold text-emerald-600 text-lg ml-1">0.00%</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- กราฟ Realtime -->
+    <div class="mb-8">
+      <h3 class="text-sm font-semibold text-slate-600 uppercase tracking-wider mb-2">Live Training Progress (LR = 0.1)</h3>
+      <div class="h-64 border rounded-xl p-3 bg-white">
+        <canvas id="liveChart"></canvas>
+      </div>
+    </div>
+
+    <!-- สรุปผลหลังเสร็จสิ้น -->
+    <div id="resultSection" class="hidden border-t pt-6 space-y-6">
+      <div>
+        <h3 class="text-lg font-bold text-slate-800 mb-3">ตารางเปรียบเทียบ 3 Learning Rates</h3>
+        <table class="w-full text-left border-collapse rounded-lg overflow-hidden border">
+          <thead class="bg-slate-50 text-slate-600 text-sm">
+            <tr>
+              <th class="p-3 border-b">Learning Rate</th>
+              <th class="p-3 border-b">Final Loss</th>
+              <th class="p-3 border-b">Final Accuracy</th>
+            </tr>
+          </thead>
+          <tbody id="summaryTableBody" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+
+      <div>
+        <h3 class="text-lg font-bold text-slate-800 mb-3">กราฟสรุปผล Loss Curve</h3>
+        <img id="lossCurveImg" src="" alt="Loss Curve" class="w-full rounded-xl border shadow-sm">
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const ctx = document.getElementById('liveChart').getContext('2d');
+    const liveChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Loss',
+          data: [],
+          borderColor: '#4f46e5',
+          backgroundColor: 'rgba(79, 70, 229, 0.1)',
+          fill: true,
+          tension: 0.1
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: { title: { display: true, text: 'Epoch' } },
+          y: { title: { display: true, text: 'BCE Loss' }, min: 0 }
+        }
+      }
+    });
+
+    function startTraining() {
+      const btn = document.getElementById('startBtn');
+      btn.disabled = true;
+      btn.classList.add('opacity-50', 'cursor-not-allowed');
+
+      liveChart.data.labels = [];
+      liveChart.data.datasets[0].data = [];
+      liveChart.update();
+      document.getElementById('resultSection').classList.add('hidden');
+
+      const es = new EventSource('/train/');
+
+      es.onmessage = function(e) {
+        const data = JSON.parse(e.data);
+        if (data.type === 'progress') {
+          document.getElementById('epochVal').innerText = data.epoch;
+          document.getElementById('lossVal').innerText = Number(data.loss).toFixed(4);
+          document.getElementById('accVal').innerText = (Number(data.accuracy) * 100).toFixed(2) + '%';
+
+          liveChart.data.labels.push(data.epoch);
+          liveChart.data.datasets[0].data.push(data.loss);
+          liveChart.update();
+        } else if (data.type === 'done') {
+          es.close();
+          btn.disabled = false;
+          btn.classList.remove('opacity-50', 'cursor-not-allowed');
+
+          const tbody = document.getElementById('summaryTableBody');
+          tbody.innerHTML = '';
+          data.summary.forEach(item => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td class="p-3 font-medium">${item.lr}</td><td class="p-3">${item.final_loss}</td><td class="p-3 text-emerald-600 font-semibold">${item.final_acc}%</td>`;
+            tbody.appendChild(tr);
+          });
+
+          document.getElementById('lossCurveImg').src = "{% static 'dashboard/loss_curve.png' %}?t=" + new Date().getTime();
+          document.getElementById('resultSection').classList.remove('hidden');
+        }
+      };
+
+      es.onerror = function() {
+        es.close();
+        btn.disabled = false;
+        btn.classList.remove('opacity-50', 'cursor-not-allowed');
+      };
+    }
+  </script>
+</body>
+</html>

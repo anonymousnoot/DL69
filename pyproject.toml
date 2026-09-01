@@ -1,0 +1,11 @@
+[project]
+name = "dl69"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "django>=6.1",
+    "matplotlib>=3.11.1",
+    "torch>=2.13.0",
+]
