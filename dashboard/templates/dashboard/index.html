@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Timeseries LSTM & RNN Dashboard - สัปดาห์ที่ 11</title>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+
+  <div class="max-w-4xl mx-auto px-6 py-10" x-data="dashboard()">
+
+    <!-- Landing page: รหัสนักศึกษาและชื่อ-นามสกุล -->
+    <div class="bg-white rounded-2xl shadow-lg p-6 mb-8 border-l-4 border-emerald-500">
+      <h1 class="text-3xl font-bold text-gray-800">Timeseries LSTM & RNN Dashboard</h1>
+      <p class="text-gray-500 mt-1">การบ้านสัปดาห์ที่ 11 — การเรียนรู้เชิงลึก</p>
+      <div class="mt-4 flex flex-wrap gap-6">
+        <p class="text-lg">
+          <span class="text-gray-500">รหัสนักศึกษา:</span>
+          <span class="font-mono font-bold text-emerald-600 text-xl">{{ student_id }}</span>
+        </p>
+        <p class="text-lg">
+          <span class="text-gray-500">ชื่อ-นามสกุล:</span>
+          <span class="font-bold text-emerald-600 text-xl">{{ student_name }}</span>
+        </p>
+      </div>
+    </div>
+
+    <!-- ส่วนเลือก Model และปุ่มเริ่มฝึกสอน -->
+    <div class="bg-white rounded-2xl shadow-lg p-6 mb-8 space-y-4">
+      <div>
+        <label class="block text-sm font-semibold text-gray-600 mb-2">เลือกโมเดล (Select Model):</label>
+        <div class="grid grid-cols-2 gap-4">
+          <button type="button" @click="selectedModel = 'lstm'" :disabled="training"
+                  :class="selectedModel === 'lstm' ? 'bg-emerald-50 border-2 border-emerald-500 text-emerald-700 font-bold' : 'bg-gray-50 border border-gray-200 text-gray-600'"
+                  class="p-3 rounded-xl transition text-center">
+            LSTM Model
+          </button>
+          <button type="button" @click="selectedModel = 'rnn'" :disabled="training"
+                  :class="selectedModel === 'rnn' ? 'bg-emerald-50 border-2 border-emerald-500 text-emerald-700 font-bold' : 'bg-gray-50 border border-gray-200 text-gray-600'"
+                  class="p-3 rounded-xl transition text-center">
+            Vanilla RNN Model
+          </button>
+        </div>
+      </div>
+
+      <button @click="startTraining()" :disabled="training"
+              class="w-full bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-300 text-white font-bold py-4 rounded-xl text-xl transition shadow-md">
+        <span x-show="!training" x-text="'เริ่มฝึกสอน ' + selectedModel.toUpperCase() + ' (Start Training)'"></span>
+        <span x-show="training" x-text="'กำลังฝึกสอน ' + selectedModel.toUpperCase() + '...'"></span>
+      </button>
+    </div>
+
+    <!-- สถานะการฝึกสอน -->
+    <div class="bg-white rounded-2xl shadow-lg p-6 mb-8">
+      <h2 class="text-xl font-semibold text-gray-800 mb-4">สถานะการฝึกสอน</h2>
+      <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-center">
+        <div class="bg-gray-50 rounded-xl p-4">
+          <div class="text-sm text-gray-500">Epoch</div>
+          <div class="text-2xl font-mono font-bold text-blue-600" x-text="epoch"></div>
+        </div>
+        <div class="bg-gray-50 rounded-xl p-4">
+          <div class="text-sm text-gray-500">Train Loss</div>
+          <div class="text-2xl font-mono font-bold text-red-600" x-text="loss"></div>
+        </div>
+        <div class="bg-gray-50 rounded-xl p-4">
+          <div class="text-sm text-gray-500">Val Loss</div>
+          <div class="text-2xl font-mono font-bold text-orange-600" x-text="valLoss"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ผลลัพธ์ -->
+    <div class="bg-white rounded-2xl shadow-lg p-6">
+      <h2 class="text-xl font-semibold text-gray-800 mb-4">ผลลัพธ์</h2>
+      <div x-show="!done && !training" class="text-gray-400 text-center py-6">ยังไม่มีผลลัพธ์ — เลือกโมเดลและกดปุ่มเริ่มฝึกสอนก่อน</div>
+      <div x-show="done" class="space-y-4">
+        <p class="text-green-600 font-semibold">การฝึกสอนเสร็จสิ้น!</p>
+        <img x-show="resultUrl" :src="resultUrl" class="w-full rounded-xl border border-gray-200 shadow-sm" alt="Prediction plot">
+      </div>
+      <canvas id="chart" class="mt-4 w-full" height="200" x-show="training || done"></canvas>
+    </div>
+
+  </div>
+
+  <script>
+    function dashboard() {
+      return {
+        training: false,
+        done: false,
+        selectedModel: 'lstm',
+        epoch: 0,
+        loss: 0,
+        valLoss: 0,
+        resultUrl: '',
+        es: null,
+        losses: [],
+        chart: null,
+
+        init() {
+          this.chart = document.getElementById('chart').getContext('2d');
+        },
+
+        startTraining() {
+          this.training = true;
+          this.done = false;
+          this.losses = [];
+          this.resultUrl = '';
+          
+          // ส่ง query string เลือกรุ่นโมเดลไปยัง endpoint
+          this.es = new EventSource('/train/?model=' + this.selectedModel);
+          this.es.onmessage = (e) => {
+            const m = JSON.parse(e.data);
+            if (m.type === 'progress') {
+              this.epoch = m.epoch;
+              this.loss = m.loss.toFixed(4);
+              this.valLoss = m.val_loss.toFixed(4);
+              this.losses.push({ epoch: m.epoch, loss: m.loss });
+              this.drawChart();
+            } else if (m.type === 'done') {
+              this.training = false;
+              this.done = true;
+              // ใส่ timestamp กันแคชรูป
+              this.resultUrl = m.results + '?' + new Date().getTime();
+              this.es.close();
+            }
+          };
+          this.es.onerror = () => {
+            this.training = false;
+            this.es.close();
+          };
+        },
+
+        drawChart() {
+          const ctx = this.chart;
+          ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+          ctx.fillStyle = '#f3f4f6';
+          ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+          const maxEpoch = Math.max(...this.losses.map(l => l.epoch), 1);
+          const maxLoss = Math.max(...this.losses.map(l => l.loss), 0.01);
+
+          ctx.strokeStyle = '#dc2626';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          this.losses.forEach((l, i) => {
+            const x = (l.epoch / maxEpoch) * ctx.canvas.width;
+            const y = ctx.canvas.height - (l.loss / maxLoss) * (ctx.canvas.height - 20) - 10;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          });
+          ctx.stroke();
+        }
+      };
+    }
+  </script>
+</body>
+</html>
